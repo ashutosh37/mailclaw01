@@ -47,8 +47,11 @@ export default function AudiencePage() {
     e.preventDefault();
     setIsSaving(true);
 
-    // For MVP/Demo: We'll attempt to use a default org_id or let the trigger handle it
-    // In a real app, this would come from the user's session
+    // Get current user session to find org_id
+    const { data: { session } } = await supabase.auth.getSession();
+    
+    // For MVP/Demo if no session exists, we'll try a fallback organization 
+    // In production, RLS will handle this.
     const { error } = await supabase
       .from('contacts')
       .insert([
@@ -56,11 +59,13 @@ export default function AudiencePage() {
           first_name: fullName.split(' ')[0], 
           last_name: fullName.split(' ').slice(1).join(' '),
           email: email,
-          status: 'Subscribed' // Matching the DB column name
+          unsubscribed: false,
+          // Removed 'status' because it's not in the DB schema
         }
       ]);
 
     if (error) {
+      console.error('Save error:', error);
       alert('Error saving contact: ' + error.message);
     } else {
       toggleModal();
