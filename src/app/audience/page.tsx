@@ -1,16 +1,73 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Sidebar from '@/components/layout/Sidebar';
-import { UserPlus, Search, Filter, X } from 'lucide-react';
+import { UserPlus, Search, Filter, X, Loader2 } from 'lucide-react';
+import { supabase } from '@/lib/supabase/client';
 
 export default function AudiencePage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [contacts, setContacts] = useState([
-    { name: 'Abhishek Singh', email: 'abhi.mani.singh@gmail.com', status: 'Subscribed', tag: 'Vanguard', added: 'Feb 17, 2026' }
-  ]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [contacts, setContacts] = useState<any[]>([]);
+  
+  // Form State
+  const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
 
-  const toggleModal = () => setIsModalOpen(!isModalOpen);
+  const toggleModal = () => {
+    setIsModalOpen(!isModalOpen);
+    if (!isModalOpen) {
+      setFullName('');
+      setEmail('');
+    }
+  };
+
+  // Fetch contacts from Supabase
+  const fetchContacts = async () => {
+    setIsLoading(true);
+    const { data, error } = await supabase
+      .from('contacts')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching contacts:', error);
+    } else {
+      setContacts(data || []);
+    }
+    setIsLoading(false);
+  };
+
+  useEffect(() => {
+    fetchContacts();
+  }, []);
+
+  const handleSaveContact = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSaving(true);
+
+    // For MVP/Demo: We'll attempt to use a default org_id or let the trigger handle it
+    // In a real app, this would come from the user's session
+    const { error } = await supabase
+      .from('contacts')
+      .insert([
+        { 
+          first_name: fullName.split(' ')[0], 
+          last_name: fullName.split(' ').slice(1).join(' '),
+          email: email,
+          status: 'Subscribed' // Matching the DB column name
+        }
+      ]);
+
+    if (error) {
+      alert('Error saving contact: ' + error.message);
+    } else {
+      toggleModal();
+      fetchContacts(); // Refresh list
+    }
+    setIsSaving(false);
+  };
 
   return (
     <div className="flex min-h-screen bg-slate-50 relative">
@@ -56,27 +113,46 @@ export default function AudiencePage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {contacts.map((contact, i) => (
-                <tr key={i} className="hover:bg-slate-50">
-                  <td className="px-6 py-4">
-                    <div className="flex flex-col">
-                      <span className="font-medium text-slate-900">{contact.name}</span>
-                      <span className="text-sm text-slate-500">{contact.email}</span>
-                    </div>
+              {isLoading ? (
+                <tr>
+                  <td colSpan={4} className="px-6 py-12 text-center text-slate-400">
+                    <Loader2 className="animate-spin inline-block mr-2" size={20} />
+                    Loading contacts...
                   </td>
-                  <td className="px-6 py-4">
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                      {contact.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex gap-1">
-                      <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-xs font-medium">{contact.tag}</span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 text-slate-500 text-sm">{contact.added}</td>
                 </tr>
-              ))}
+              ) : contacts.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="px-6 py-12 text-center text-slate-400">
+                    No contacts found. Click "Add Contact" to get started.
+                  </td>
+                </tr>
+              ) : (
+                contacts.map((contact) => (
+                  <tr key={contact.id} className="hover:bg-slate-50">
+                    <td className="px-6 py-4">
+                      <div className="flex flex-col">
+                        <span className="font-medium text-slate-900">{contact.first_name} {contact.last_name}</span>
+                        <span className="text-sm text-slate-500">{contact.email}</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${contact.unsubscribed ? 'bg-rose-100 text-rose-800' : 'bg-green-100 text-green-800'}`}>
+                        {contact.unsubscribed ? 'Unsubscribed' : 'Subscribed'}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex gap-1">
+                        {contact.tags?.map((tag: string) => (
+                          <span key={tag} className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-xs font-medium">{tag}</span>
+                        )) || <span className="text-slate-300 text-xs">-</span>}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-slate-500 text-sm">
+                      {new Date(contact.created_at).toLocaleDateString()}
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
@@ -92,18 +168,37 @@ export default function AudiencePage() {
                 <X size={20} />
               </button>
             </div>
-            <form className="p-6 space-y-4" onSubmit={(e) => { e.preventDefault(); toggleModal(); }}>
+            <form className="p-6 space-y-4" onSubmit={handleSaveContact}>
               <div className="space-y-1.5">
                 <label className="text-sm font-semibold text-slate-700">Full Name</label>
-                <input type="text" placeholder="e.g. John Doe" className="w-full p-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" required />
+                <input 
+                  type="text" 
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  placeholder="e.g. John Doe" 
+                  className="w-full p-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-slate-900" 
+                  required 
+                />
               </div>
               <div className="space-y-1.5">
                 <label className="text-sm font-semibold text-slate-700">Email Address</label>
-                <input type="email" placeholder="john@example.com" className="w-full p-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" required />
+                <input 
+                  type="email" 
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="john@example.com" 
+                  className="w-full p-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-slate-900" 
+                  required 
+                />
               </div>
               <div className="pt-2">
-                <button type="submit" className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 transition-all shadow-md active:scale-[0.98]">
-                  Save Contact
+                <button 
+                  type="submit" 
+                  disabled={isSaving}
+                  className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 transition-all shadow-md active:scale-[0.98] flex items-center justify-center disabled:opacity-50"
+                >
+                  {isSaving ? <Loader2 className="animate-spin mr-2" size={18} /> : null}
+                  {isSaving ? 'Saving...' : 'Save Contact'}
                 </button>
               </div>
             </form>
